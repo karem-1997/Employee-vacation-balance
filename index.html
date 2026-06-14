@@ -447,6 +447,22 @@
             display: block;
         }
 
+        /* Delete button styling */
+        .delete-btn {
+            background: #e74c3c;
+            color: white;
+            border: none;
+            padding: 4px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-top: 8px;
+        }
+
+        .delete-btn:hover {
+            background: #c0392b;
+        }
+
         @media (max-width: 400px) {
             .container { padding: 10px; }
             .card { padding: 18px; }
@@ -924,14 +940,14 @@ async function loadEmployeeData() {
         });
 
         notes.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-        renderNotesList(notes, 'notesList');
+        renderNotesList(notes, 'notesList', false);
 
     } catch (error) {
         console.error('Error loading notes:', error);
     }
 }
 
-function renderVacationsList(vacations, containerId, showEmployeeName) {
+function renderVacationsList(vacations, containerId, isAdmin) {
     const container = document.getElementById(containerId);
 
     if (vacations.length === 0) {
@@ -947,16 +963,19 @@ function renderVacationsList(vacations, containerId, showEmployeeName) {
 
         html += '<div class="vacation-item">';
         html += '<span class="vacation-type ' + typeClass + '">' + typeText + '</span>';
-        if (showEmployeeName) html += '<div style="font-weight:600;color:#333;margin-bottom:5px;">' + escapeHtml(v.employeeName || v.employeeId) + '</div>';
+        if (isAdmin) html += '<div style="font-weight:600;color:#333;margin-bottom:5px;">' + escapeHtml(v.employeeName || v.employeeId) + '</div>';
         html += '<div class="vacation-dates">📅 ' + formatDate(v.startDate) + ' - ' + formatDate(v.endDate) + ' (' + days + ' يوم)</div>';
         if (v.note) html += '<div class="vacation-note">📝 ' + escapeHtml(v.note) + '</div>';
+        if (isAdmin) {
+            html += '<button class="delete-btn" onclick="deleteVacation(&#39;' + v.id + '&#39;, &#39;' + v.employeeId + '&#39;, ' + days + ')">🗑️ حذف الإجازة وإرجاع الرصيد</button>';
+        }
         html += '</div>';
     });
 
     container.innerHTML = html;
 }
 
-function renderNotesList(notes, containerId) {
+function renderNotesList(notes, containerId, isAdmin) {
     const container = document.getElementById(containerId);
 
     if (notes.length === 0) {
@@ -969,6 +988,9 @@ function renderNotesList(notes, containerId) {
         html += '<div class="note-item">';
         html += '<div class="note-date">📅 ' + formatTimestamp(n.createdAt) + '</div>';
         html += '<div class="note-text">' + escapeHtml(n.text) + '</div>';
+        if (isAdmin) {
+            html += '<button class="delete-btn" onclick="deleteNote(&#39;' + n.id + '&#39;)">🗑️ حذف الملاحظة</button>';
+        }
         html += '</div>';
     });
 
@@ -1193,6 +1215,7 @@ function renderAdminVacationsByEmployee() {
                 html += '<span class="vacation-type ' + typeClass + '">' + typeText + '</span>';
                 html += '<div class="vacation-dates">📅 ' + formatDate(v.startDate) + ' - ' + formatDate(v.endDate) + ' (' + days + ' يوم)</div>';
                 if (v.note) html += '<div class="vacation-note">📝 ' + escapeHtml(v.note) + '</div>';
+                html += '<button class="delete-btn" onclick="event.stopPropagation();deleteVacation(&#39;' + v.id + '&#39;, &#39;' + v.employeeId + '&#39;, ' + days + ')">🗑️ حذف الإجازة وإرجاع الرصيد</button>';
                 html += '</div>';
             });
         }
@@ -1231,6 +1254,7 @@ function renderAdminNotesByEmployee() {
                 html += '<div class="note-item" style="margin-bottom:8px;">';
                 html += '<div class="note-date">📅 ' + formatTimestamp(n.createdAt) + '</div>';
                 html += '<div class="note-text">' + escapeHtml(n.text) + '</div>';
+                html += '<button class="delete-btn" onclick="event.stopPropagation();deleteNote(&#39;' + n.id + '&#39;)">🗑️ حذف الملاحظة</button>';
                 html += '</div>';
             });
         }
@@ -1252,6 +1276,52 @@ function toggleEmployeeDetails(element, type, empId) {
     if (!isOpen) {
         details.classList.add('open');
         element.classList.add('active');
+    }
+}
+
+async function deleteVacation(vacationId, employeeId, days) {
+    if (!confirm('هل أنت متأكد من حذف هذه الإجازة وإرجاع ' + days + ' يوم للموظف؟')) return;
+
+    try {
+        // Delete the vacation
+        await db.ref('vacations/' + vacationId).remove();
+
+        // Return days to employee balance
+        const emp = allEmployees[employeeId];
+        if (emp) {
+            const newBalance = (emp.balance || 0) + days;
+            await db.ref('employees/' + employeeId + '/balance').set(newBalance);
+        }
+
+        // Reload data
+        loadAdminData();
+
+        // Sync to sheets
+        syncToSheets('deleteVacation', { id: vacationId, employeeId: employeeId, days: days });
+
+        alert('تم حذف الإجازة وإرجاع الرصيد بنجاح!');
+
+    } catch (error) {
+        alert('خطأ في حذف الإجازة: ' + error.message);
+    }
+}
+
+async function deleteNote(noteId) {
+    if (!confirm('هل أنت متأكد من حذف هذه الملاحظة؟')) return;
+
+    try {
+        await db.ref('notes/' + noteId).remove();
+
+        // Reload data
+        loadAdminData();
+
+        // Sync to sheets
+        syncToSheets('deleteNote', { id: noteId });
+
+        alert('تم حذف الملاحظة بنجاح!');
+
+    } catch (error) {
+        alert('خطأ في حذف الملاحظة: ' + error.message);
     }
 }
 
