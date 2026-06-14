@@ -9,6 +9,10 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
     
     <!-- SheetJS for Excel export -->
+        <!-- SheetJS for Excel export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+    <!-- SheetJS for Excel export -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
     <style>
@@ -1710,12 +1714,22 @@ function downloadEmployeeExcel() {
     db.ref('vacations').orderByChild('employeeId').equalTo(currentUser.id).once('value')
     .then(snapshot => {
         const vacations = [];
-        snapshot.forEach(child => vacations.push(child.val()));
+        snapshot.forEach(child => {
+            const v = child.val();
+            v._id = child.key;
+            vacations.push(v);
+        });
+        vacations.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
         return db.ref('notes').orderByChild('employeeId').equalTo(currentUser.id).once('value')
         .then(notesSnapshot => {
             const notes = [];
-            notesSnapshot.forEach(child => notes.push(child.val()));
+            notesSnapshot.forEach(child => {
+                const n = child.val();
+                n._id = child.key;
+                notes.push(n);
+            });
+            notes.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
             const wb = XLSX.utils.book_new();
             wb.Props = {
@@ -1725,52 +1739,98 @@ function downloadEmployeeExcel() {
                 CreatedDate: new Date()
             };
 
-            const vacationsData = [
-                ['تقرير رصيد الإجازات - ' + (currentUser.fullName || currentUser.id)],
+            // ===== SHEET 1: INFO =====
+            const infoData = [
+                ['تقرير رصيد الإجازات'],
                 [''],
+                ['اسم الموظف:', currentUser.fullName || currentUser.id],
+                ['اسم المستخدم:', currentUser.id],
                 ['الرصيد المتاح:', (currentUser.balance || 0) + ' يوم'],
+                ['تاريخ التقرير:', new Date().toLocaleDateString('ar-EG')],
                 [''],
-                ['سجل الإجازات'],
-                ['#', 'النوع', 'تاريخ البداية', 'تاريخ النهاية', 'المدة (يوم)', 'ملاحظة']
+                ['إجمالي الإجازات:', vacations.length],
+                ['إجمالي الملاحظات:', notes.length]
             ];
+
+            let regularDays = 0, casualDays = 0;
+            vacations.forEach(v => {
+                const d = v.days || calculateDays(v.startDate, v.endDate);
+                if (v.type === 'regular') regularDays += d;
+                else casualDays += d;
+            });
+            infoData.push(['أيام إجازات اعتيادية:', regularDays]);
+            infoData.push(['أيام إجازات عارضة:', casualDays]);
+
+            const wsInfo = XLSX.utils.aoa_to_sheet(infoData);
+            XLSX.utils.book_append_sheet(wb, wsInfo, 'معلومات الموظف');
+
+            // ===== SHEET 2: ALL VACATIONS - FULL DATA =====
+            const vacHeaders = [['#', 'معرف الإجازة', 'معرف الموظف', 'اسم الموظف', 'نوع الإجازة', 'تاريخ البداية', 'تاريخ النهاية', 'عدد الأيام', 'ملاحظة', 'تاريخ الإنشاء']];
+            const vacData = [];
 
             if (vacations.length === 0) {
-                vacationsData.push(['لا توجد إجازات مسجلة']);
+                vacData.push(['لا توجد إجازات مسجلة']);
             } else {
                 vacations.forEach((v, i) => {
-                    vacationsData.push([
+                    vacData.push([
                         i + 1,
+                        v._id || '',
+                        v.employeeId || currentUser.id,
+                        v.employeeName || currentUser.fullName || currentUser.id,
                         v.type === 'regular' ? 'إجازة اعتيادية' : 'إجازة عارضة',
-                        v.startDate,
-                        v.endDate,
+                        v.startDate || '',
+                        v.endDate || '',
                         v.days || calculateDays(v.startDate, v.endDate),
-                        v.note || ''
+                        v.note || '',
+                        v.createdAt ? formatTimestamp(v.createdAt) : ''
                     ]);
                 });
             }
 
-            const ws1 = XLSX.utils.aoa_to_sheet(vacationsData);
-            XLSX.utils.book_append_sheet(wb, ws1, 'الإجازات');
-
-            const notesData = [
-                ['الملاحظات'],
-                ['#', 'التاريخ', 'الملاحظة']
+            const wsVac = XLSX.utils.aoa_to_sheet(vacHeaders.concat(vacData));
+            wsVac['!cols'] = [
+                { wch: 5 },    // #
+                { wch: 25 },   // معرف الإجازة
+                { wch: 18 },   // معرف الموظف
+                { wch: 20 },   // اسم الموظف
+                { wch: 18 },   // نوع
+                { wch: 15 },   // بداية
+                { wch: 15 },   // نهاية
+                { wch: 12 },   // مدة
+                { wch: 40 },   // ملاحظة
+                { wch: 20 }    // تاريخ الإنشاء
             ];
+            XLSX.utils.book_append_sheet(wb, wsVac, 'الإجازات');
+
+            // ===== SHEET 3: ALL NOTES - FULL DATA =====
+            const noteHeaders = [['#', 'معرف الملاحظة', 'معرف الموظف', 'اسم الموظف', 'التاريخ', 'الملاحظة']];
+            const noteData = [];
 
             if (notes.length === 0) {
-                notesData.push(['لا توجد ملاحظات']);
+                noteData.push(['لا توجد ملاحظات']);
             } else {
                 notes.forEach((n, i) => {
-                    notesData.push([
+                    noteData.push([
                         i + 1,
-                        formatTimestamp(n.createdAt),
-                        n.text
+                        n._id || '',
+                        n.employeeId || currentUser.id,
+                        n.employeeName || currentUser.fullName || currentUser.id,
+                        n.createdAt ? formatTimestamp(n.createdAt) : '',
+                        n.text || ''
                     ]);
                 });
             }
 
-            const ws2 = XLSX.utils.aoa_to_sheet(notesData);
-            XLSX.utils.book_append_sheet(wb, ws2, 'الملاحظات');
+            const wsNotes = XLSX.utils.aoa_to_sheet(noteHeaders.concat(noteData));
+            wsNotes['!cols'] = [
+                { wch: 5 },    // #
+                { wch: 25 },   // معرف الملاحظة
+                { wch: 18 },   // معرف الموظف
+                { wch: 20 },   // اسم الموظف
+                { wch: 20 },   // تاريخ
+                { wch: 60 }    // ملاحظة
+            ];
+            XLSX.utils.book_append_sheet(wb, wsNotes, 'الملاحظات');
 
             const filename = 'تقرير_' + currentUser.id + '_' + new Date().toISOString().split('T')[0] + '.xlsx';
             XLSX.writeFile(wb, filename);
@@ -1786,76 +1846,183 @@ function downloadAllExcel() {
         });
 
         return db.ref('vacations').once('value').then(vacSnapshot => {
-            const vacations = [];
-            vacSnapshot.forEach(child => vacations.push({ id: child.key, ...child.val() }));
+            const allVacations = [];
+            vacSnapshot.forEach(child => {
+                const v = child.val();
+                v._id = child.key;
+                allVacations.push(v);
+            });
 
             return db.ref('notes').once('value').then(notesSnapshot => {
-                const notes = [];
-                notesSnapshot.forEach(child => notes.push({ id: child.key, ...child.val() }));
+                const allNotes = [];
+                notesSnapshot.forEach(child => {
+                    const n = child.val();
+                    n._id = child.key;
+                    allNotes.push(n);
+                });
 
                 const wb = XLSX.utils.book_new();
                 wb.Props = {
-                    Title: 'تقرير شامل - رصيد إجازات الموظفين',
+                    Title: 'التقرير الشامل - رصيد إجازات الموظفين',
                     Subject: 'تقرير شامل',
                     Author: 'نظام رصيد الإجازات',
                     CreatedDate: new Date()
                 };
 
-                const empData = [
-                    ['قائمة الموظفين'],
-                    ['#', 'اسم المستخدم', 'الاسم الكامل', 'الرصيد (يوم)']
+                // ===== SHEET 1: SUMMARY =====
+                const summaryData = [
+                    ['التقرير الشامل - نظام رصيد الإجازات'],
+                    [''],
+                    ['تاريخ التقرير:', new Date().toLocaleDateString('ar-EG')],
+                    ['إجمالي الموظفين:', employees.length],
+                    ['إجمالي الإجازات:', allVacations.length],
+                    ['إجمالي الملاحظات:', allNotes.length],
+                    [''],
+                    ['ملخص الموظفين']
                 ];
-                employees.forEach((emp, i) => {
-                    empData.push([i + 1, emp.id, emp.fullName || emp.id, emp.balance || 0]);
+
+                const summaryHeaders = [['#', 'اسم المستخدم', 'الاسم الكامل', 'الرصيد (يوم)', 'عدد الإجازات', 'عدد الملاحظات']];
+                const summaryRows = employees.map((emp, i) => {
+                    const empVacations = allVacations.filter(v => v.employeeId === emp.id);
+                    const empNotes = allNotes.filter(n => n.employeeId === emp.id);
+                    return [
+                        i + 1,
+                        emp.id,
+                        emp.fullName || emp.id,
+                        emp.balance || 0,
+                        empVacations.length,
+                        empNotes.length
+                    ];
                 });
 
-                const ws1 = XLSX.utils.aoa_to_sheet(empData);
-                XLSX.utils.book_append_sheet(wb, ws1, 'الموظفين');
-
-                const vacData = [
-                    ['جميع الإجازات'],
-                    ['#', 'الموظف', 'النوع', 'تاريخ البداية', 'تاريخ النهاية', 'المدة (يوم)', 'ملاحظة']
+                const wsSummary = XLSX.utils.aoa_to_sheet(summaryData.concat(summaryHeaders).concat(summaryRows));
+                wsSummary['!cols'] = [
+                    { wch: 5 }, { wch: 18 }, { wch: 20 }, { wch: 12 }, { wch: 14 }, { wch: 14 }
                 ];
-                if (vacations.length === 0) {
-                    vacData.push(['لا توجد إجازات']);
+                XLSX.utils.book_append_sheet(wb, wsSummary, 'ملخص');
+
+                // ===== ALL VACATIONS SHEET =====
+                const allVacHeaders = [['#', 'معرف الإجازة', 'معرف الموظف', 'اسم الموظف', 'نوع الإجازة', 'تاريخ البداية', 'تاريخ النهاية', 'عدد الأيام', 'ملاحظة', 'تاريخ الإنشاء']];
+                const allVacData = [];
+
+                if (allVacations.length === 0) {
+                    allVacData.push(['لا توجد إجازات']);
                 } else {
-                    vacations.forEach((v, i) => {
-                        vacData.push([
+                    allVacations.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+                    allVacations.forEach((v, i) => {
+                        allVacData.push([
                             i + 1,
-                            v.employeeName || v.employeeId,
+                            v._id || '',
+                            v.employeeId || '',
+                            v.employeeName || '',
                             v.type === 'regular' ? 'إجازة اعتيادية' : 'إجازة عارضة',
-                            v.startDate,
-                            v.endDate,
+                            v.startDate || '',
+                            v.endDate || '',
                             v.days || calculateDays(v.startDate, v.endDate),
-                            v.note || ''
+                            v.note || '',
+                            v.createdAt ? formatTimestamp(v.createdAt) : ''
                         ]);
                     });
                 }
 
-                const ws2 = XLSX.utils.aoa_to_sheet(vacData);
-                XLSX.utils.book_append_sheet(wb, ws2, 'الإجازات');
-
-                const notesData = [
-                    ['جميع الملاحظات'],
-                    ['#', 'الموظف', 'التاريخ', 'الملاحظة']
+                const wsAllVac = XLSX.utils.aoa_to_sheet(allVacHeaders.concat(allVacData));
+                wsAllVac['!cols'] = [
+                    { wch: 5 }, { wch: 25 }, { wch: 18 }, { wch: 20 }, { wch: 18 }, { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 40 }, { wch: 20 }
                 ];
-                if (notes.length === 0) {
-                    notesData.push(['لا توجد ملاحظات']);
+                XLSX.utils.book_append_sheet(wb, wsAllVac, 'جميع الإجازات');
+
+                // ===== ALL NOTES SHEET =====
+                const allNoteHeaders = [['#', 'معرف الملاحظة', 'معرف الموظف', 'اسم الموظف', 'التاريخ', 'الملاحظة']];
+                const allNoteData = [];
+
+                if (allNotes.length === 0) {
+                    allNoteData.push(['لا توجد ملاحظات']);
                 } else {
-                    notes.forEach((n, i) => {
-                        notesData.push([
+                    allNotes.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+                    allNotes.forEach((n, i) => {
+                        allNoteData.push([
                             i + 1,
-                            n.employeeName || n.employeeId,
-                            formatTimestamp(n.createdAt),
-                            n.text
+                            n._id || '',
+                            n.employeeId || '',
+                            n.employeeName || '',
+                            n.createdAt ? formatTimestamp(n.createdAt) : '',
+                            n.text || ''
                         ]);
                     });
                 }
 
-                const ws3 = XLSX.utils.aoa_to_sheet(notesData);
-                XLSX.utils.book_append_sheet(wb, ws3, 'الملاحظات');
+                const wsAllNotes = XLSX.utils.aoa_to_sheet(allNoteHeaders.concat(allNoteData));
+                wsAllNotes['!cols'] = [
+                    { wch: 5 }, { wch: 25 }, { wch: 18 }, { wch: 20 }, { wch: 20 }, { wch: 60 }
+                ];
+                XLSX.utils.book_append_sheet(wb, wsAllNotes, 'جميع الملاحظات');
 
-                const filename = 'تقرير_شامل_' + new Date().toISOString().split('T')[0] + '.xlsx';
+                // ===== ONE SHEET PER EMPLOYEE =====
+                employees.forEach((emp, empIndex) => {
+                    const empVacations = allVacations
+                        .filter(v => v.employeeId === emp.id)
+                        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+                    const empNotes = allNotes
+                        .filter(n => n.employeeId === emp.id)
+                        .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+                    let sheetName = (emp.fullName || emp.id).substring(0, 25);
+                    if (employees.filter(e => (e.fullName || e.id).substring(0, 25) === sheetName).length > 1) {
+                        sheetName = sheetName.substring(0, 22) + '_' + (empIndex + 1);
+                    }
+
+                    const empData = [
+                        ['بيانات الموظف'],
+                        ['الاسم:', emp.fullName || emp.id],
+                        ['اسم المستخدم:', emp.id],
+                        ['الرصيد:', (emp.balance || 0) + ' يوم'],
+                        [''],
+                        ['الإجازات (' + empVacations.length + ')']
+                    ];
+
+                    if (empVacations.length === 0) {
+                        empData.push(['لا توجد إجازات مسجلة']);
+                    } else {
+                        empData.push(['#', 'معرف الإجازة', 'نوع الإجازة', 'تاريخ البداية', 'تاريخ النهاية', 'عدد الأيام', 'ملاحظة', 'تاريخ الإنشاء']);
+                        empVacations.forEach((v, i) => {
+                            empData.push([
+                                i + 1,
+                                v._id || '',
+                                v.type === 'regular' ? 'إجازة اعتيادية' : 'إجازة عارضة',
+                                v.startDate || '',
+                                v.endDate || '',
+                                v.days || calculateDays(v.startDate, v.endDate),
+                                v.note || '',
+                                v.createdAt ? formatTimestamp(v.createdAt) : ''
+                            ]);
+                        });
+                    }
+
+                    empData.push(['']);
+                    empData.push(['الملاحظات (' + empNotes.length + ')']);
+
+                    if (empNotes.length === 0) {
+                        empData.push(['لا توجد ملاحظات']);
+                    } else {
+                        empData.push(['#', 'معرف الملاحظة', 'التاريخ', 'الملاحظة']);
+                        empNotes.forEach((n, i) => {
+                            empData.push([
+                                i + 1,
+                                n._id || '',
+                                n.createdAt ? formatTimestamp(n.createdAt) : '',
+                                n.text || ''
+                            ]);
+                        });
+                    }
+
+                    const wsEmp = XLSX.utils.aoa_to_sheet(empData);
+                    wsEmp['!cols'] = [
+                        { wch: 5 }, { wch: 25 }, { wch: 18 }, { wch: 15 }, { wch: 15 }, { wch: 12 }, { wch: 40 }, { wch: 20 }
+                    ];
+                    XLSX.utils.book_append_sheet(wb, wsEmp, sheetName);
+                });
+
+                const filename = 'التقرير_الشامل_' + new Date().toISOString().split('T')[0] + '.xlsx';
                 XLSX.writeFile(wb, filename);
             });
         });
