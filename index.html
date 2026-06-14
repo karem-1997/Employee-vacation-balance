@@ -190,6 +190,7 @@
             margin-bottom: 10px;
             cursor: pointer;
             transition: all 0.3s;
+            flex-wrap: wrap;
         }
 
         .employee-item:hover {
@@ -207,7 +208,7 @@
             color: white;
         }
 
-        .employee-info { flex: 1; }
+        .employee-info { flex: 1; min-width: 120px; }
 
         .employee-name { font-weight: 600; color: #333; margin-bottom: 3px; }
         .employee-balance { font-size: 13px; color: #667eea; }
@@ -543,10 +544,34 @@
             margin-bottom: 20px;
         }
 
+        /* Password display box */
+        .password-display {
+            background: #f8f9fa;
+            border: 2px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 12px 15px;
+            font-size: 16px;
+            font-family: monospace;
+            color: #667eea;
+            font-weight: 600;
+            text-align: center;
+            letter-spacing: 2px;
+            margin-bottom: 15px;
+            word-break: break-all;
+        }
+
+        .password-label {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 5px;
+            text-align: center;
+        }
+
         @media (max-width: 400px) {
             .container { padding: 10px; }
             .card { padding: 18px; }
             .balance-number { font-size: 36px; }
+            .btn-small { padding: 6px 10px; font-size: 11px; }
         }
     </style>
 </head>
@@ -830,6 +855,33 @@
         </div>
     </div>
 
+    <!-- Modal تعديل بيانات الموظف (باسورد) -->
+    <div id="editEmpModal" class="modal-overlay hidden" onclick="closeEditEmpModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <h2>🔐 تعديل بيانات الموظف</h2>
+            <p id="editEmpModalName" style="margin-bottom:15px;color:#667eea;font-weight:600;"></p>
+
+            <div class="input-group">
+                <label>اسم المستخدم</label>
+                <input type="text" id="editEmpUsername" disabled>
+            </div>
+
+            <div class="password-label">🔑 كلمة المرور الحالية</div>
+            <div class="password-display" id="editEmpCurrentPassword">---</div>
+
+            <div class="input-group">
+                <label>كلمة المرور الجديدة</label>
+                <input type="text" id="editEmpNewPassword" placeholder="أدخل كلمة المرور الجديدة">
+            </div>
+
+            <div id="editEmpModalError" class="error-msg"></div>
+            <div id="editEmpModalSuccess" class="success-msg"></div>
+
+            <button class="btn btn-success" onclick="updateEmployeePassword()">💾 حفظ التغيير</button>
+            <button class="btn btn-secondary" onclick="closeEditEmpModal()">إلغاء</button>
+        </div>
+    </div>
+
 </div>
 
 <script>
@@ -852,6 +904,7 @@ const db = firebase.database();
 let currentUser = null;
 let currentAdmin = false;
 let selectedEmployeeId = null;
+let selectedEditEmpId = null;
 let allEmployees = {};
 let allVacations = [];
 let allNotes = [];
@@ -956,6 +1009,7 @@ function logout() {
     currentUser = null;
     currentAdmin = false;
     selectedEmployeeId = null;
+    selectedEditEmpId = null;
 
     document.getElementById('employeeDashboard').classList.add('hidden');
     document.getElementById('adminDashboard').classList.add('hidden');
@@ -1281,6 +1335,7 @@ function renderEmployeesList() {
         html += '</div>';
         html += '<div>';
         html += '<button class="btn btn-small btn-warning" onclick="event.stopPropagation();openBalanceModal(\'' + emp.id + '\')">تعديل الرصيد</button>';
+        html += '<button class="btn btn-small btn-info" onclick="event.stopPropagation();openEditEmpModal(\'' + emp.id + '\')">🔐 البيانات</button>';
         html += '<button class="btn btn-small btn-danger" onclick="event.stopPropagation();deleteEmployee(\'' + emp.id + '\')">حذف</button>';
         html += '</div>';
         html += '</div>';
@@ -1509,6 +1564,69 @@ async function deleteEmployee(empId) {
     }
 }
 
+// ==================== Edit Employee Modal (Password) ====================
+function openEditEmpModal(empId) {
+    selectedEditEmpId = empId;
+    const emp = allEmployees[empId];
+
+    document.getElementById('editEmpModalName').textContent = emp.fullName || emp.id;
+    document.getElementById('editEmpUsername').value = emp.id;
+    document.getElementById('editEmpCurrentPassword').textContent = emp.password || '---';
+    document.getElementById('editEmpNewPassword').value = '';
+    document.getElementById('editEmpModalError').textContent = '';
+    document.getElementById('editEmpModalSuccess').textContent = '';
+
+    document.getElementById('editEmpModal').classList.remove('hidden');
+}
+
+function closeEditEmpModal(event) {
+    if (!event || event.target === document.getElementById('editEmpModal')) {
+        document.getElementById('editEmpModal').classList.add('hidden');
+        selectedEditEmpId = null;
+    }
+}
+
+async function updateEmployeePassword() {
+    if (!selectedEditEmpId) return;
+
+    const newPassword = document.getElementById('editEmpNewPassword').value.trim();
+    const errorEl = document.getElementById('editEmpModalError');
+    const successEl = document.getElementById('editEmpModalSuccess');
+
+    errorEl.textContent = '';
+    successEl.textContent = '';
+
+    if (!newPassword) {
+        errorEl.textContent = 'يرجى إدخال كلمة المرور الجديدة';
+        return;
+    }
+
+    try {
+        await db.ref('employees/' + selectedEditEmpId + '/password').set(newPassword);
+
+        // Update local data
+        if (allEmployees[selectedEditEmpId]) {
+            allEmployees[selectedEditEmpId].password = newPassword;
+        }
+
+        successEl.textContent = '✓ تم تغيير كلمة المرور بنجاح!';
+        document.getElementById('editEmpCurrentPassword').textContent = newPassword;
+
+        syncToSheets('updatePassword', {
+            id: selectedEditEmpId,
+            fullName: allEmployees[selectedEditEmpId].fullName || selectedEditEmpId
+        });
+
+        // Refresh employees list after short delay
+        setTimeout(() => {
+            renderEmployeesList();
+        }, 1000);
+
+    } catch (error) {
+        errorEl.textContent = 'خطأ: ' + error.message;
+    }
+}
+
 // ==================== Balance Modal ====================
 function openBalanceModal(empId) {
     selectedEmployeeId = empId;
@@ -1599,7 +1717,6 @@ function downloadEmployeeExcel() {
             const notes = [];
             notesSnapshot.forEach(child => notes.push(child.val()));
 
-            // Create workbook
             const wb = XLSX.utils.book_new();
             wb.Props = {
                 Title: 'تقرير رصيد الإجازات - ' + (currentUser.fullName || currentUser.id),
@@ -1608,7 +1725,6 @@ function downloadEmployeeExcel() {
                 CreatedDate: new Date()
             };
 
-            // Vacations sheet
             const vacationsData = [
                 ['تقرير رصيد الإجازات - ' + (currentUser.fullName || currentUser.id)],
                 [''],
@@ -1636,7 +1752,6 @@ function downloadEmployeeExcel() {
             const ws1 = XLSX.utils.aoa_to_sheet(vacationsData);
             XLSX.utils.book_append_sheet(wb, ws1, 'الإجازات');
 
-            // Notes sheet
             const notesData = [
                 ['الملاحظات'],
                 ['#', 'التاريخ', 'الملاحظة']
@@ -1657,7 +1772,6 @@ function downloadEmployeeExcel() {
             const ws2 = XLSX.utils.aoa_to_sheet(notesData);
             XLSX.utils.book_append_sheet(wb, ws2, 'الملاحظات');
 
-            // Save file
             const filename = 'تقرير_' + currentUser.id + '_' + new Date().toISOString().split('T')[0] + '.xlsx';
             XLSX.writeFile(wb, filename);
         });
@@ -1687,7 +1801,6 @@ function downloadAllExcel() {
                     CreatedDate: new Date()
                 };
 
-                // Employees sheet
                 const empData = [
                     ['قائمة الموظفين'],
                     ['#', 'اسم المستخدم', 'الاسم الكامل', 'الرصيد (يوم)']
@@ -1699,7 +1812,6 @@ function downloadAllExcel() {
                 const ws1 = XLSX.utils.aoa_to_sheet(empData);
                 XLSX.utils.book_append_sheet(wb, ws1, 'الموظفين');
 
-                // Vacations sheet
                 const vacData = [
                     ['جميع الإجازات'],
                     ['#', 'الموظف', 'النوع', 'تاريخ البداية', 'تاريخ النهاية', 'المدة (يوم)', 'ملاحظة']
@@ -1723,7 +1835,6 @@ function downloadAllExcel() {
                 const ws2 = XLSX.utils.aoa_to_sheet(vacData);
                 XLSX.utils.book_append_sheet(wb, ws2, 'الإجازات');
 
-                // Notes sheet
                 const notesData = [
                     ['جميع الملاحظات'],
                     ['#', 'الموظف', 'التاريخ', 'الملاحظة']
