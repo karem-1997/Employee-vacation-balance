@@ -7,6 +7,9 @@
 
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    
+    <!-- SheetJS for Excel export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -447,7 +450,6 @@
             display: block;
         }
 
-        /* Delete button styling */
         .delete-btn {
             background: #e74c3c;
             color: white;
@@ -463,6 +465,84 @@
             background: #c0392b;
         }
 
+        /* Hamburger Menu Styles */
+        .menu-btn {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            background: white;
+            border: none;
+            border-radius: 10px;
+            padding: 10px 12px;
+            font-size: 20px;
+            cursor: pointer;
+            z-index: 100;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .menu-dropdown {
+            position: absolute;
+            top: 55px;
+            left: 15px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 5px 25px rgba(0,0,0,0.2);
+            padding: 10px;
+            min-width: 200px;
+            z-index: 99;
+            display: none;
+        }
+
+        .menu-dropdown.show {
+            display: block;
+        }
+
+        .menu-item {
+            padding: 12px 15px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+            color: #333;
+        }
+
+        .menu-item:hover {
+            background: #f0f0f0;
+        }
+
+        .menu-item i {
+            margin-left: 8px;
+        }
+
+        .menu-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 98;
+            display: none;
+        }
+
+        .menu-overlay.show {
+            display: block;
+        }
+
+        .login-header {
+            position: relative;
+            text-align: center;
+            padding: 20px 0;
+        }
+
+        .login-header h1 {
+            margin: 0;
+        }
+
+        .login-subtitle {
+            text-align: center;
+            color: #888;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
         @media (max-width: 400px) {
             .container { padding: 10px; }
             .card { padding: 18px; }
@@ -474,16 +554,19 @@
 
 <div class="container">
 
-    <!-- ==================== صفحة تسجيل الدخول ==================== -->
-    <div id="loginPage" class="card">
-        <h1>🏢 نظام رصيد الإجازات</h1>
-
-        <div class="tabs">
-            <div class="tab active" onclick="switchLoginTab(&#39;employee&#39;)" id="tabEmployee">موظف</div>
-            <div class="tab" onclick="switchLoginTab(&#39;admin&#39;)" id="tabAdmin">مدير</div>
+    <!-- ==================== صفحة تسجيل الدخول (موظف فقط) ==================== -->
+    <div id="loginPage">
+        <div class="login-header">
+            <button class="menu-btn" onclick="toggleMenu()">☰</button>
+            <div class="menu-overlay" id="menuOverlay" onclick="toggleMenu()"></div>
+            <div class="menu-dropdown" id="menuDropdown">
+                <div class="menu-item" onclick="showAdminLogin()">👤 تسجيل دخول المدير</div>
+            </div>
+            <h1>🏢 نظام رصيد الإجازات</h1>
+            <div class="login-subtitle">تسجيل دخول الموظفين</div>
         </div>
 
-        <div id="employeeLogin">
+        <div class="card">
             <div class="input-group">
                 <label>اسم المستخدم</label>
                 <input type="text" id="empUsername" placeholder="أدخل اسم المستخدم">
@@ -493,17 +576,22 @@
                 <input type="password" id="empPassword" placeholder="أدخل كلمة المرور">
             </div>
             <button class="btn btn-primary" onclick="loginEmployee()">تسجيل الدخول</button>
+            <div id="loginError" class="error-msg"></div>
         </div>
+    </div>
 
-        <div id="adminLogin" class="hidden">
+    <!-- Modal تسجيل دخول المدير -->
+    <div id="adminLoginModal" class="modal-overlay hidden" onclick="closeAdminLoginModal(event)">
+        <div class="modal-content" onclick="event.stopPropagation()">
+            <h2>🔐 تسجيل دخول المدير</h2>
             <div class="input-group">
                 <label>كلمة المرور</label>
                 <input type="password" id="adminPassword" placeholder="أدخل كلمة المرور">
             </div>
-            <button class="btn btn-primary" onclick="loginAdmin()">تسجيل الدخول كمدير</button>
+            <div id="adminLoginError" class="error-msg"></div>
+            <button class="btn btn-primary" onclick="loginAdmin()">تسجيل الدخول</button>
+            <button class="btn btn-secondary" onclick="closeAdminLoginModal()">إلغاء</button>
         </div>
-
-        <div id="loginError" class="error-msg"></div>
     </div>
 
     <!-- ==================== لوحة الموظف ==================== -->
@@ -531,9 +619,9 @@
         </div>
 
         <div class="section-tabs">
-            <div class="section-tab active" onclick="switchEmpSection(&#39;vacations&#39;)" id="secVacations">الإجازات</div>
-            <div class="section-tab" onclick="switchEmpSection(&#39;notes&#39;)" id="secNotes">الملاحظات</div>
-            <div class="section-tab" onclick="switchEmpSection(&#39;reports&#39;)" id="secReports">التقارير</div>
+            <div class="section-tab active" onclick="switchEmpSection('vacations')" id="secVacations">الإجازات</div>
+            <div class="section-tab" onclick="switchEmpSection('notes')" id="secNotes">الملاحظات</div>
+            <div class="section-tab" onclick="switchEmpSection('reports')" id="secReports">التقارير</div>
         </div>
 
         <div id="empSectionVacations">
@@ -603,7 +691,7 @@
         <div id="empSectionReports" class="hidden">
             <div class="card">
                 <h2>📥 تحميل البيانات</h2>
-                <button class="btn btn-info" onclick="downloadEmployeeTXT()">تحميل تقرير TXT</button>
+                <button class="btn btn-info" onclick="downloadEmployeeExcel()">تحميل تقرير Excel</button>
             </div>
         </div>
     </div>
@@ -678,8 +766,8 @@
 
         <!-- أقسام المدير -->
         <div class="admin-section-tabs">
-            <div class="admin-section-tab active" onclick="switchAdminSection(&#39;vacations&#39;)" id="adminSecVacations">الإجازات</div>
-            <div class="admin-section-tab" onclick="switchAdminSection(&#39;notes&#39;)" id="adminSecNotes">الملاحظات</div>
+            <div class="admin-section-tab active" onclick="switchAdminSection('vacations')" id="adminSecVacations">الإجازات</div>
+            <div class="admin-section-tab" onclick="switchAdminSection('notes')" id="adminSecNotes">الملاحظات</div>
         </div>
 
         <!-- قسم إجازات الموظفين -->
@@ -706,7 +794,7 @@
 
         <div class="card">
             <h2>📥 تحميل البيانات</h2>
-            <button class="btn btn-info" onclick="downloadAllTXT()">تحميل تقرير شامل TXT</button>
+            <button class="btn btn-info" onclick="downloadAllExcel()">تحميل تقرير شامل Excel</button>
         </div>
     </div>
 
@@ -771,6 +859,27 @@ let gsheetUrl = localStorage.getItem('gsheetUrl') || '';
 
 const ADMIN_PASSWORD = "1987";
 
+// ==================== Menu Functions ====================
+function toggleMenu() {
+    const dropdown = document.getElementById('menuDropdown');
+    const overlay = document.getElementById('menuOverlay');
+    dropdown.classList.toggle('show');
+    overlay.classList.toggle('show');
+}
+
+function showAdminLogin() {
+    toggleMenu();
+    document.getElementById('adminLoginModal').classList.remove('hidden');
+    document.getElementById('adminPassword').value = '';
+    document.getElementById('adminLoginError').textContent = '';
+}
+
+function closeAdminLoginModal(event) {
+    if (!event || event.target === document.getElementById('adminLoginModal')) {
+        document.getElementById('adminLoginModal').classList.add('hidden');
+    }
+}
+
 // ==================== Login Functions ====================
 function switchLoginTab(tab) {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -829,6 +938,7 @@ function loginAdmin() {
         currentAdmin = true;
         currentUser = { name: 'المدير' };
 
+        document.getElementById('adminLoginModal').classList.add('hidden');
         document.getElementById('loginPage').classList.add('hidden');
         document.getElementById('adminDashboard').classList.remove('hidden');
 
@@ -838,7 +948,7 @@ function loginAdmin() {
 
         loadAdminData();
     } else {
-        document.getElementById('loginError').textContent = 'كلمة المرور غير صحيحة';
+        document.getElementById('adminLoginError').textContent = 'كلمة المرور غير صحيحة';
     }
 }
 
@@ -967,7 +1077,7 @@ function renderVacationsList(vacations, containerId, isAdmin) {
         html += '<div class="vacation-dates">📅 ' + formatDate(v.startDate) + ' - ' + formatDate(v.endDate) + ' (' + days + ' يوم)</div>';
         if (v.note) html += '<div class="vacation-note">📝 ' + escapeHtml(v.note) + '</div>';
         if (isAdmin) {
-            html += '<button class="delete-btn" onclick="deleteVacation(&#39;' + v.id + '&#39;, &#39;' + v.employeeId + '&#39;, ' + days + ')">🗑️ حذف الإجازة وإرجاع الرصيد</button>';
+            html += '<button class="delete-btn" onclick="deleteVacation(\'' + v.id + '\', \'' + v.employeeId + '\', ' + days + ')">🗑️ حذف الإجازة وإرجاع الرصيد</button>';
         }
         html += '</div>';
     });
@@ -989,7 +1099,7 @@ function renderNotesList(notes, containerId, isAdmin) {
         html += '<div class="note-date">📅 ' + formatTimestamp(n.createdAt) + '</div>';
         html += '<div class="note-text">' + escapeHtml(n.text) + '</div>';
         if (isAdmin) {
-            html += '<button class="delete-btn" onclick="deleteNote(&#39;' + n.id + '&#39;)">🗑️ حذف الملاحظة</button>';
+            html += '<button class="delete-btn" onclick="deleteNote(\'' + n.id + '\')">🗑️ حذف الملاحظة</button>';
         }
         html += '</div>';
     });
@@ -1149,7 +1259,6 @@ async function loadAdminData() {
         console.error('Error loading all notes:', error);
     }
 
-    // Render admin sections
     renderAdminVacationsByEmployee();
     renderAdminNotesByEmployee();
 }
@@ -1171,8 +1280,8 @@ function renderEmployeesList() {
         html += '<div class="employee-balance">رصيد: ' + (emp.balance || 0) + ' يوم</div>';
         html += '</div>';
         html += '<div>';
-        html += '<button class="btn btn-small btn-warning" onclick="event.stopPropagation();openBalanceModal(&#39;' + emp.id + '&#39;)">تعديل الرصيد</button>';
-        html += '<button class="btn btn-small btn-danger" onclick="event.stopPropagation();deleteEmployee(&#39;' + emp.id + '&#39;)">حذف</button>';
+        html += '<button class="btn btn-small btn-warning" onclick="event.stopPropagation();openBalanceModal(\'' + emp.id + '\')">تعديل الرصيد</button>';
+        html += '<button class="btn btn-small btn-danger" onclick="event.stopPropagation();deleteEmployee(\'' + emp.id + '\')">حذف</button>';
         html += '</div>';
         html += '</div>';
     });
@@ -1194,7 +1303,7 @@ function renderAdminVacationsByEmployee() {
         const empVacations = allVacations.filter(v => v.employeeId === emp.id);
         const totalDays = empVacations.reduce((sum, v) => sum + (v.days || calculateDays(v.startDate, v.endDate)), 0);
 
-        html += '<div class="employee-item" onclick="toggleEmployeeDetails(this, &#39;vacations&#39;, &#39;' + emp.id + '&#39;)">';
+        html += '<div class="employee-item" onclick="toggleEmployeeDetails(this, \'vacations\', \'' + emp.id + '\')">';
         html += '<div class="employee-info">';
         html += '<div class="employee-name">' + escapeHtml(emp.fullName || emp.id) + '</div>';
         html += '<div class="employee-balance">' + empVacations.length + ' إجازة - ' + totalDays + ' يوم</div>';
@@ -1215,7 +1324,7 @@ function renderAdminVacationsByEmployee() {
                 html += '<span class="vacation-type ' + typeClass + '">' + typeText + '</span>';
                 html += '<div class="vacation-dates">📅 ' + formatDate(v.startDate) + ' - ' + formatDate(v.endDate) + ' (' + days + ' يوم)</div>';
                 if (v.note) html += '<div class="vacation-note">📝 ' + escapeHtml(v.note) + '</div>';
-                html += '<button class="delete-btn" onclick="event.stopPropagation();deleteVacation(&#39;' + v.id + '&#39;, &#39;' + v.employeeId + '&#39;, ' + days + ')">🗑️ حذف الإجازة وإرجاع الرصيد</button>';
+                html += '<button class="delete-btn" onclick="event.stopPropagation();deleteVacation(\'' + v.id + '\', \'' + v.employeeId + '\', ' + days + ')">🗑️ حذف الإجازة وإرجاع الرصيد</button>';
                 html += '</div>';
             });
         }
@@ -1238,7 +1347,7 @@ function renderAdminNotesByEmployee() {
     employees.forEach(emp => {
         const empNotes = allNotes.filter(n => n.employeeId === emp.id);
 
-        html += '<div class="employee-item" onclick="toggleEmployeeDetails(this, &#39;notes&#39;, &#39;' + emp.id + '&#39;)">';
+        html += '<div class="employee-item" onclick="toggleEmployeeDetails(this, \'notes\', \'' + emp.id + '\')">';
         html += '<div class="employee-info">';
         html += '<div class="employee-name">' + escapeHtml(emp.fullName || emp.id) + '</div>';
         html += '<div class="employee-balance">' + empNotes.length + ' ملاحظة</div>';
@@ -1254,7 +1363,7 @@ function renderAdminNotesByEmployee() {
                 html += '<div class="note-item" style="margin-bottom:8px;">';
                 html += '<div class="note-date">📅 ' + formatTimestamp(n.createdAt) + '</div>';
                 html += '<div class="note-text">' + escapeHtml(n.text) + '</div>';
-                html += '<button class="delete-btn" onclick="event.stopPropagation();deleteNote(&#39;' + n.id + '&#39;)">🗑️ حذف الملاحظة</button>';
+                html += '<button class="delete-btn" onclick="event.stopPropagation();deleteNote(\'' + n.id + '\')">🗑️ حذف الملاحظة</button>';
                 html += '</div>';
             });
         }
@@ -1269,7 +1378,6 @@ function toggleEmployeeDetails(element, type, empId) {
     const details = document.getElementById(detailsId);
     const isOpen = details.classList.contains('open');
 
-    // Close all others
     document.querySelectorAll('.employee-details').forEach(d => d.classList.remove('open'));
     document.querySelectorAll('.employee-item').forEach(e => e.classList.remove('active'));
 
@@ -1283,20 +1391,16 @@ async function deleteVacation(vacationId, employeeId, days) {
     if (!confirm('هل أنت متأكد من حذف هذه الإجازة وإرجاع ' + days + ' يوم للموظف؟')) return;
 
     try {
-        // Delete the vacation
         await db.ref('vacations/' + vacationId).remove();
 
-        // Return days to employee balance
         const emp = allEmployees[employeeId];
         if (emp) {
             const newBalance = (emp.balance || 0) + days;
             await db.ref('employees/' + employeeId + '/balance').set(newBalance);
         }
 
-        // Reload data
         loadAdminData();
 
-        // Sync to sheets
         syncToSheets('deleteVacation', { id: vacationId, employeeId: employeeId, days: days });
 
         alert('تم حذف الإجازة وإرجاع الرصيد بنجاح!');
@@ -1312,10 +1416,8 @@ async function deleteNote(noteId) {
     try {
         await db.ref('notes/' + noteId).remove();
 
-        // Reload data
         loadAdminData();
 
-        // Sync to sheets
         syncToSheets('deleteNote', { id: noteId });
 
         alert('تم حذف الملاحظة بنجاح!');
@@ -1483,8 +1585,8 @@ function saveGSheetUrl() {
     msgEl.innerHTML = '<span style="color:#27ae60;">✓ تم حفظ الرابط</span>';
 }
 
-// ==================== Download Functions ====================
-function downloadEmployeeTXT() {
+// ==================== Excel Export Functions ====================
+function downloadEmployeeExcel() {
     if (!currentUser) return;
 
     db.ref('vacations').orderByChild('employeeId').equalTo(currentUser.id).once('value')
@@ -1497,43 +1599,72 @@ function downloadEmployeeTXT() {
             const notes = [];
             notesSnapshot.forEach(child => notes.push(child.val()));
 
-            let content = 'تقرير رصيد الإجازات - ' + (currentUser.fullName || currentUser.id) + '\n';
-            content += '================================\n\n';
-            content += 'الرصيد المتاح: ' + (currentUser.balance || 0) + ' يوم\n\n';
+            // Create workbook
+            const wb = XLSX.utils.book_new();
+            wb.Props = {
+                Title: 'تقرير رصيد الإجازات - ' + (currentUser.fullName || currentUser.id),
+                Subject: 'تقرير إجازات',
+                Author: 'نظام رصيد الإجازات',
+                CreatedDate: new Date()
+            };
 
-            content += 'سجل الإجازات:\n';
-            content += '--------------------------------\n';
+            // Vacations sheet
+            const vacationsData = [
+                ['تقرير رصيد الإجازات - ' + (currentUser.fullName || currentUser.id)],
+                [''],
+                ['الرصيد المتاح:', (currentUser.balance || 0) + ' يوم'],
+                [''],
+                ['سجل الإجازات'],
+                ['#', 'النوع', 'تاريخ البداية', 'تاريخ النهاية', 'المدة (يوم)', 'ملاحظة']
+            ];
+
             if (vacations.length === 0) {
-                content += 'لا توجد إجازات مسجلة\n';
+                vacationsData.push(['لا توجد إجازات مسجلة']);
             } else {
                 vacations.forEach((v, i) => {
-                    content += (i + 1) + '. ' + (v.type === 'regular' ? 'إجازة اعتيادية' : 'إجازة عارضة') + '\n';
-                    content += '   التاريخ: ' + v.startDate + ' إلى ' + v.endDate + '\n';
-                    content += '   المدة: ' + (v.days || calculateDays(v.startDate, v.endDate)) + ' يوم\n';
-                    if (v.note) content += '   ملاحظة: ' + v.note + '\n';
-                    content += '\n';
+                    vacationsData.push([
+                        i + 1,
+                        v.type === 'regular' ? 'إجازة اعتيادية' : 'إجازة عارضة',
+                        v.startDate,
+                        v.endDate,
+                        v.days || calculateDays(v.startDate, v.endDate),
+                        v.note || ''
+                    ]);
                 });
             }
 
-            content += '\nالملاحظات:\n';
-            content += '--------------------------------\n';
+            const ws1 = XLSX.utils.aoa_to_sheet(vacationsData);
+            XLSX.utils.book_append_sheet(wb, ws1, 'الإجازات');
+
+            // Notes sheet
+            const notesData = [
+                ['الملاحظات'],
+                ['#', 'التاريخ', 'الملاحظة']
+            ];
+
             if (notes.length === 0) {
-                content += 'لا توجد ملاحظات\n';
+                notesData.push(['لا توجد ملاحظات']);
             } else {
                 notes.forEach((n, i) => {
-                    content += (i + 1) + '. ' + n.text + '\n';
-                    content += '   التاريخ: ' + formatTimestamp(n.createdAt) + '\n\n';
+                    notesData.push([
+                        i + 1,
+                        formatTimestamp(n.createdAt),
+                        n.text
+                    ]);
                 });
             }
 
-            content += '\nتاريخ التقرير: ' + new Date().toLocaleString('ar-EG') + '\n';
+            const ws2 = XLSX.utils.aoa_to_sheet(notesData);
+            XLSX.utils.book_append_sheet(wb, ws2, 'الملاحظات');
 
-            downloadTextFile(content, 'تقرير_' + currentUser.id + '.txt');
+            // Save file
+            const filename = 'تقرير_' + currentUser.id + '_' + new Date().toISOString().split('T')[0] + '.xlsx';
+            XLSX.writeFile(wb, filename);
         });
     });
 }
 
-function downloadAllTXT() {
+function downloadAllExcel() {
     db.ref('employees').once('value').then(empSnapshot => {
         const employees = [];
         empSnapshot.forEach(child => {
@@ -1548,60 +1679,76 @@ function downloadAllTXT() {
                 const notes = [];
                 notesSnapshot.forEach(child => notes.push({ id: child.key, ...child.val() }));
 
-                let content = 'تقرير شامل - رصيد إجازات الموظفين\n';
-                content += '================================\n\n';
+                const wb = XLSX.utils.book_new();
+                wb.Props = {
+                    Title: 'تقرير شامل - رصيد إجازات الموظفين',
+                    Subject: 'تقرير شامل',
+                    Author: 'نظام رصيد الإجازات',
+                    CreatedDate: new Date()
+                };
 
-                content += 'قائمة الموظفين (' + employees.length + '):\n';
-                content += '--------------------------------\n';
+                // Employees sheet
+                const empData = [
+                    ['قائمة الموظفين'],
+                    ['#', 'اسم المستخدم', 'الاسم الكامل', 'الرصيد (يوم)']
+                ];
                 employees.forEach((emp, i) => {
-                    content += (i + 1) + '. ' + (emp.fullName || emp.id) + ' - الرصيد: ' + (emp.balance || 0) + ' يوم\n';
+                    empData.push([i + 1, emp.id, emp.fullName || emp.id, emp.balance || 0]);
                 });
 
-                content += '\n\nجميع الإجازات (' + vacations.length + '):\n';
-                content += '--------------------------------\n';
+                const ws1 = XLSX.utils.aoa_to_sheet(empData);
+                XLSX.utils.book_append_sheet(wb, ws1, 'الموظفين');
+
+                // Vacations sheet
+                const vacData = [
+                    ['جميع الإجازات'],
+                    ['#', 'الموظف', 'النوع', 'تاريخ البداية', 'تاريخ النهاية', 'المدة (يوم)', 'ملاحظة']
+                ];
                 if (vacations.length === 0) {
-                    content += 'لا توجد إجازات\n';
+                    vacData.push(['لا توجد إجازات']);
                 } else {
                     vacations.forEach((v, i) => {
-                        content += (i + 1) + '. ' + (v.employeeName || v.employeeId) + '\n';
-                        content += '   النوع: ' + (v.type === 'regular' ? 'إجازة اعتيادية' : 'إجازة عارضة') + '\n';
-                        content += '   التاريخ: ' + v.startDate + ' إلى ' + v.endDate + '\n';
-                        content += '   المدة: ' + (v.days || calculateDays(v.startDate, v.endDate)) + ' يوم\n';
-                        if (v.note) content += '   ملاحظة: ' + v.note + '\n';
-                        content += '\n';
+                        vacData.push([
+                            i + 1,
+                            v.employeeName || v.employeeId,
+                            v.type === 'regular' ? 'إجازة اعتيادية' : 'إجازة عارضة',
+                            v.startDate,
+                            v.endDate,
+                            v.days || calculateDays(v.startDate, v.endDate),
+                            v.note || ''
+                        ]);
                     });
                 }
 
-                content += '\n\nجميع الملاحظات (' + notes.length + '):\n';
-                content += '--------------------------------\n';
+                const ws2 = XLSX.utils.aoa_to_sheet(vacData);
+                XLSX.utils.book_append_sheet(wb, ws2, 'الإجازات');
+
+                // Notes sheet
+                const notesData = [
+                    ['جميع الملاحظات'],
+                    ['#', 'الموظف', 'التاريخ', 'الملاحظة']
+                ];
                 if (notes.length === 0) {
-                    content += 'لا توجد ملاحظات\n';
+                    notesData.push(['لا توجد ملاحظات']);
                 } else {
                     notes.forEach((n, i) => {
-                        content += (i + 1) + '. ' + (n.employeeName || n.employeeId) + '\n';
-                        content += '   ' + n.text + '\n';
-                        content += '   التاريخ: ' + formatTimestamp(n.createdAt) + '\n\n';
+                        notesData.push([
+                            i + 1,
+                            n.employeeName || n.employeeId,
+                            formatTimestamp(n.createdAt),
+                            n.text
+                        ]);
                     });
                 }
 
-                content += '\nتاريخ التقرير: ' + new Date().toLocaleString('ar-EG') + '\n';
+                const ws3 = XLSX.utils.aoa_to_sheet(notesData);
+                XLSX.utils.book_append_sheet(wb, ws3, 'الملاحظات');
 
-                downloadTextFile(content, 'تقرير_شامل_' + new Date().toISOString().split('T')[0] + '.txt');
+                const filename = 'تقرير_شامل_' + new Date().toISOString().split('T')[0] + '.xlsx';
+                XLSX.writeFile(wb, filename);
             });
         });
     });
-}
-
-function downloadTextFile(content, filename) {
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
 }
 
 // ==================== Helper Functions ====================
