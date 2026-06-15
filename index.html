@@ -946,7 +946,7 @@ let selectedEditEmpId = null;
 let allEmployees = {};
 let allVacations = [];
 let allNotes = [];
-let gsheetUrl = localStorage.getItem('gsheetUrl') || '';
+let gsheetUrl = '';
 
 const ADMIN_PASSWORD = "1987";
 
@@ -1033,9 +1033,13 @@ function loginAdmin() {
         document.getElementById('loginPage').classList.add('hidden');
         document.getElementById('adminDashboard').classList.remove('hidden');
 
-        if (gsheetUrl) {
-            document.getElementById('gsheetUrl').value = gsheetUrl;
-        }
+        db.ref('config/gsheetUrl').once('value').then(snap => {
+            const url = snap.val();
+            if (url) {
+                gsheetUrl = url;
+                document.getElementById('gsheetUrl').value = url;
+            }
+        });
 
         loadAdminData();
     } else {
@@ -1082,23 +1086,20 @@ function switchAdminSection(section) {
 }
 
 // ==================== Google Sheets Sync ====================
-async async function syncToSheets(action, payload) {
-    const url = gsheetUrl || localStorage.getItem('gsheetUrl');
-    if (!url) {
-        console.log('No gsheetUrl configured');
-        return;
-    }
-
+async function syncToSheets(action, payload) {
     try {
+        const configSnap = await db.ref('config/gsheetUrl').once('value');
+        const url = configSnap.val();
+        if (!url) return;
+
         await fetch(url, {
             method: 'POST',
             mode: 'no-cors',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: action, data: payload })
         });
-        console.log('Sheet sync success:', action);
     } catch (error) {
-        console.log('Sheet sync error:', error.message);
+        console.log('Sheet sync (no-cors):', error.message);
     }
 }
 
@@ -1741,8 +1742,13 @@ function saveGSheetUrl() {
     }
 
     gsheetUrl = url;
-    localStorage.setItem('gsheetUrl', url);
-    msgEl.innerHTML = '<span style="color:#27ae60;">✓ تم حفظ الرابط</span>';
+    db.ref('config/gsheetUrl').set(url)
+        .then(() => {
+            msgEl.innerHTML = '<span style="color:#27ae60;">✓ تم حفظ الرابط في قاعدة البيانات</span>';
+        })
+        .catch(err => {
+            msgEl.innerHTML = '<span style="color:#e74c3c;">خطأ في الحفظ: ' + err.message + '</span>';
+        });
 }
 
 // ==================== Excel Export Functions ====================
