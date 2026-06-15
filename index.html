@@ -1082,9 +1082,12 @@ function switchAdminSection(section) {
 }
 
 // ==================== Google Sheets Sync ====================
-async function syncToSheets(action, payload) {
+async async function syncToSheets(action, payload) {
     const url = gsheetUrl || localStorage.getItem('gsheetUrl');
-    if (!url) return;
+    if (!url) {
+        console.log('No gsheetUrl configured');
+        return;
+    }
 
     try {
         await fetch(url, {
@@ -1093,8 +1096,9 @@ async function syncToSheets(action, payload) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: action, data: payload })
         });
+        console.log('Sheet sync success:', action);
     } catch (error) {
-        console.log('Sheet sync (no-cors):', error.message);
+        console.log('Sheet sync error:', error.message);
     }
 }
 
